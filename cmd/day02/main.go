@@ -8,9 +8,9 @@ import (
 	"strings"
 )
 
-// isInvalid checks if a number consists of a sequence of digits repeated twice
+// isInvalidDouble checks if a number consists of a sequence of digits repeated exactly twice
 // e.g., 11 (1+1), 123123 (123+123) are invalid
-func isInvalid(id int) bool {
+func isInvalidDouble(id int) bool {
 	s := strconv.Itoa(id)
 	// Must have even length to be a doubled sequence
 	if len(s)%2 != 0 {
@@ -20,6 +20,24 @@ func isInvalid(id int) bool {
 	return s[:half] == s[half:]
 }
 
+// isInvalidRepeated checks if a number consists of a sequence repeated 2+ times
+// e.g., 11, 111, 1111, 123123, 123123123 are all invalid
+func isInvalidRepeated(id int) bool {
+	s := strconv.Itoa(id)
+	// Try each possible pattern length (1 to len/2)
+	for patLen := 1; patLen <= len(s)/2; patLen++ {
+		if len(s)%patLen != 0 {
+			continue
+		}
+		pattern := s[:patLen]
+		repeated := strings.Repeat(pattern, len(s)/patLen)
+		if repeated == s {
+			return true
+		}
+	}
+	return false
+}
+
 func part1(lines []string) int {
 	if len(lines) == 0 {
 		return 0
@@ -27,14 +45,13 @@ func part1(lines []string) int {
 
 	sum := 0
 	// Parse ranges from the line: "11-22,1234-2345"
-	ranges := strings.Split(lines[0], ",")
-	for _, r := range ranges {
-		parts := strings.Split(r, "-")
-		start, _ := strconv.Atoi(parts[0])
-		end, _ := strconv.Atoi(parts[1])
+	for r := range strings.SplitSeq(lines[0], ",") {
+		startStr, endStr, _ := strings.Cut(r, "-")
+		start, _ := strconv.Atoi(startStr)
+		end, _ := strconv.Atoi(endStr)
 
 		for id := start; id <= end; id++ {
-			if isInvalid(id) {
+			if isInvalidDouble(id) {
 				sum += id
 			}
 		}
@@ -43,8 +60,23 @@ func part1(lines []string) int {
 }
 
 func part2(lines []string) int {
-	// TODO: implement
-	return 0
+	if len(lines) == 0 {
+		return 0
+	}
+
+	sum := 0
+	for r := range strings.SplitSeq(lines[0], ",") {
+		startStr, endStr, _ := strings.Cut(r, "-")
+		start, _ := strconv.Atoi(startStr)
+		end, _ := strconv.Atoi(endStr)
+
+		for id := start; id <= end; id++ {
+			if isInvalidRepeated(id) {
+				sum += id
+			}
+		}
+	}
+	return sum
 }
 
 func main() {
