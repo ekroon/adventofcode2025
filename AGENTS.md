@@ -9,6 +9,7 @@
 - Solutions are in `cmd/dayXX/main.go`
 - Input is read from STDIN: `cat inputs/dayXX.txt | go run ./cmd/dayXX`
 - Tests go in `cmd/dayXX/main_test.go` (only when requested)
+- Use `./mkday.sh <day_number>` to create a new day from the template (e.g., `./mkday.sh 2` creates `cmd/day02/main.go`)
 
 ## Workflow
 1. User will describe the puzzle
