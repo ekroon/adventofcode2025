@@ -7,21 +7,47 @@ import (
 	"strconv"
 )
 
-func part1(lines []string) int {
-	dial := 50
-	password := 0
+type Direction int
 
+const (
+	Left Direction = iota
+	Right
+)
+
+type Move struct {
+	Direction Direction
+	Amount    int
+}
+
+func parse(lines []string) []Move {
+	moves := make([]Move, 0, len(lines))
 	for _, line := range lines {
 		if len(line) == 0 {
 			continue
 		}
-		direction := line[0]
+		var dir Direction
+		switch line[0] {
+		case 'L':
+			dir = Left
+		case 'R':
+			dir = Right
+		}
 		amount, _ := strconv.Atoi(line[1:])
+		moves = append(moves, Move{Direction: dir, Amount: amount})
+	}
+	return moves
+}
 
-		if direction == 'L' {
-			dial -= amount
-		} else if direction == 'R' {
-			dial += amount
+func part1(moves []Move) int {
+	dial := 50
+	password := 0
+
+	for _, m := range moves {
+		switch m.Direction {
+		case Left:
+			dial -= m.Amount
+		case Right:
+			dial += m.Amount
 		}
 
 		// Wrap dial to 0-99 range
@@ -35,28 +61,17 @@ func part1(lines []string) int {
 	return password
 }
 
-func part2(lines []string) int {
+func part2(moves []Move) int {
 	dial := 50
 	password := 0
 
-	for _, line := range lines {
-		if len(line) == 0 {
-			continue
-		}
-		direction := line[0]
-		amount, _ := strconv.Atoi(line[1:])
-
-		for i := 0; i < amount; i++ {
-			if direction == 'L' {
-				dial--
-				if dial < 0 {
-					dial = 99
-				}
-			} else if direction == 'R' {
-				dial++
-				if dial > 99 {
-					dial = 0
-				}
+	for _, m := range moves {
+		for range m.Amount {
+			switch m.Direction {
+			case Left:
+				dial = (dial - 1 + 100) % 100
+			case Right:
+				dial = (dial + 1) % 100
 			}
 
 			if dial == 0 {
@@ -75,6 +90,7 @@ func main() {
 		lines = append(lines, scanner.Text())
 	}
 
-	fmt.Println("Part 1:", part1(lines))
-	fmt.Println("Part 2:", part2(lines))
+	moves := parse(lines)
+	fmt.Println("Part 1:", part1(moves))
+	fmt.Println("Part 2:", part2(moves))
 }
