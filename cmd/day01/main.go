@@ -4,11 +4,35 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"strconv"
 )
 
 func part1(lines []string) int {
-	// TODO: implement
-	return 0
+	dial := 50
+	password := 0
+
+	for _, line := range lines {
+		if len(line) == 0 {
+			continue
+		}
+		direction := line[0]
+		amount, _ := strconv.Atoi(line[1:])
+
+		if direction == 'L' {
+			dial -= amount
+		} else if direction == 'R' {
+			dial += amount
+		}
+
+		// Wrap dial to 0-99 range
+		dial = ((dial % 100) + 100) % 100
+
+		if dial == 0 {
+			password++
+		}
+	}
+
+	return password
 }
 
 func part2(lines []string) int {
