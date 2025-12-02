@@ -4,6 +4,12 @@
 - Do NOT read files in `inputs/` - these contain puzzle inputs that should not be seen
 - Do NOT include puzzle input data in responses
 - When testing, use small example inputs provided by the user, not the actual input files
+- Use modern Go idioms and functions (Go 1.24+)
+
+## Modern Go Checks
+Before committing, run these checks to ensure modern Go patterns:
+- `go vet ./cmd/dayXX/...` - standard Go linter
+- `staticcheck ./cmd/dayXX/...` - advanced static analysis
 
 ## Project Structure
 - Solutions are in `cmd/dayXX/main.go`
