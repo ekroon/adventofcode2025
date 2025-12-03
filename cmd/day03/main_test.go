@@ -55,3 +55,42 @@ func TestMaxNumber(t *testing.T) {
 		})
 	}
 }
+
+// maxNumberNaive is the brute-force approach: try all combinations of `count` indices
+func maxNumberNaive(line string, count int) int {
+	maxNum := 0
+	var search func(start, depth, current int)
+	search = func(start, depth, current int) {
+		if depth == count {
+			maxNum = max(maxNum, current)
+			return
+		}
+		for i := start; i <= len(line)-(count-depth); i++ {
+			search(i+1, depth+1, current*10+int(line[i]-'0'))
+		}
+	}
+	search(0, 0, 0)
+	return maxNum
+}
+
+func BenchmarkPart2Naive(b *testing.B) {
+	lines := generateLines(1, 30) // Short line - naive is extremely slow
+	b.ResetTimer()
+	for b.Loop() {
+		total := 0
+		for _, line := range lines {
+			total += maxNumberNaive(line, 12)
+		}
+	}
+}
+
+func BenchmarkPart2Greedy(b *testing.B) {
+	lines := generateLines(1, 30) // Same short line for fair comparison
+	b.ResetTimer()
+	for b.Loop() {
+		total := 0
+		for _, line := range lines {
+			total += maxNumber(line, 12)
+		}
+	}
+}
