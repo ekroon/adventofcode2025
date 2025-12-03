@@ -1,0 +1,15 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "lsp": {
+    "gopls": {
+      "disabled": true
+    }
+  },
+  "mcp": {
+    "gopls": {
+      "type": "local",
+      "enabled": true,
+      "command": ["gopls", "mcp"]
+    }
+  }
+}
