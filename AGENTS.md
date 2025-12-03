@@ -6,6 +6,7 @@
 - When testing, use small example inputs provided by the user, not the actual input files
 - Use modern Go idioms and functions (Go 1.24+) -- Do NOT look this up on the internet
 - You MUST read the instructions in GOPLS.md and follow them
+- Use `go run` instead of `go build` to avoid creating binary files in the working directory
 
 ## Project Structure
 - Solutions are in `cmd/dayXX/main.go`
