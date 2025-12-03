@@ -4,34 +4,59 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 )
 
-// isInvalidDouble checks if a number consists of a sequence of digits repeated exactly twice
-// e.g., 11 (1+1), 123123 (123+123) are invalid
+// isInvalidDouble checks if a number consists of a sequence repeated exactly twice
 func isInvalidDouble(id int) bool {
-	s := strconv.Itoa(id)
-	// Must have even length to be a doubled sequence
-	if len(s)%2 != 0 {
+	var digits [20]byte
+	n := 0
+	for num := id; num > 0; num /= 10 {
+		digits[n] = byte(num % 10)
+		n++
+	}
+	if n%2 != 0 {
 		return false
 	}
-	half := len(s) / 2
-	return s[:half] == s[half:]
+	for i, j := 0, n-1; i < j; i, j = i+1, j-1 {
+		digits[i], digits[j] = digits[j], digits[i]
+	}
+	half := n / 2
+	for i := 0; i < half; i++ {
+		if digits[i] != digits[i+half] {
+			return false
+		}
+	}
+	return true
 }
 
 // isInvalidRepeated checks if a number consists of a sequence repeated 2+ times
-// e.g., 11, 111, 1111, 123123, 123123123 are all invalid
 func isInvalidRepeated(id int) bool {
-	s := strconv.Itoa(id)
-	// Try each possible pattern length (1 to len/2)
-	for patLen := 1; patLen <= len(s)/2; patLen++ {
-		if len(s)%patLen != 0 {
+	var digits [20]byte
+	n := 0
+	for num := id; num > 0; num /= 10 {
+		digits[n] = byte(num % 10)
+		n++
+	}
+	for i, j := 0, n-1; i < j; i, j = i+1, j-1 {
+		digits[i], digits[j] = digits[j], digits[i]
+	}
+
+	for patLen := 1; patLen <= n/2; patLen++ {
+		if n%patLen != 0 {
 			continue
 		}
-		pattern := s[:patLen]
-		repeated := strings.Repeat(pattern, len(s)/patLen)
-		if repeated == s {
+		match := true
+		for i := patLen; i < n; i++ {
+			if digits[i] != digits[i%patLen] {
+				match = false
+				break
+			}
+		}
+		if match {
 			return true
 		}
 	}
@@ -43,18 +68,53 @@ func part1(lines []string) int {
 		return 0
 	}
 
-	sum := 0
-	// Parse ranges from the line: "11-22,1234-2345"
+	type idRange struct{ start, end int }
+	var ranges []idRange
+
 	for r := range strings.SplitSeq(lines[0], ",") {
 		startStr, endStr, _ := strings.Cut(r, "-")
 		start, _ := strconv.Atoi(startStr)
 		end, _ := strconv.Atoi(endStr)
+		ranges = append(ranges, idRange{start, end})
+	}
 
-		for id := start; id <= end; id++ {
-			if isInvalidDouble(id) {
-				sum += id
+	numWorkers := runtime.GOMAXPROCS(0)
+	results := make(chan int, numWorkers)
+	var wg sync.WaitGroup
+
+	for _, rng := range ranges {
+		rangeSize := rng.end - rng.start + 1
+		chunkSize := (rangeSize + numWorkers - 1) / numWorkers
+
+		for w := 0; w < numWorkers; w++ {
+			chunkStart := rng.start + w*chunkSize
+			chunkEnd := min(chunkStart+chunkSize-1, rng.end)
+			if chunkStart > rng.end {
+				break
 			}
+
+			wg.Add(1)
+			go func(start, end int) {
+				defer wg.Done()
+				localSum := 0
+				for id := start; id <= end; id++ {
+					if isInvalidDouble(id) {
+						localSum += id
+					}
+				}
+				results <- localSum
+			}(chunkStart, chunkEnd)
 		}
+	}
+
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	sum := 0
+	for partial := range results {
+		sum += partial
 	}
 	return sum
 }
@@ -64,17 +124,53 @@ func part2(lines []string) int {
 		return 0
 	}
 
-	sum := 0
+	type idRange struct{ start, end int }
+	var ranges []idRange
+
 	for r := range strings.SplitSeq(lines[0], ",") {
 		startStr, endStr, _ := strings.Cut(r, "-")
 		start, _ := strconv.Atoi(startStr)
 		end, _ := strconv.Atoi(endStr)
+		ranges = append(ranges, idRange{start, end})
+	}
 
-		for id := start; id <= end; id++ {
-			if isInvalidRepeated(id) {
-				sum += id
+	numWorkers := runtime.GOMAXPROCS(0)
+	results := make(chan int, numWorkers)
+	var wg sync.WaitGroup
+
+	for _, rng := range ranges {
+		rangeSize := rng.end - rng.start + 1
+		chunkSize := (rangeSize + numWorkers - 1) / numWorkers
+
+		for w := 0; w < numWorkers; w++ {
+			chunkStart := rng.start + w*chunkSize
+			chunkEnd := min(chunkStart+chunkSize-1, rng.end)
+			if chunkStart > rng.end {
+				break
 			}
+
+			wg.Add(1)
+			go func(start, end int) {
+				defer wg.Done()
+				localSum := 0
+				for id := start; id <= end; id++ {
+					if isInvalidRepeated(id) {
+						localSum += id
+					}
+				}
+				results <- localSum
+			}(chunkStart, chunkEnd)
 		}
+	}
+
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	sum := 0
+	for partial := range results {
+		sum += partial
 	}
 	return sum
 }
