@@ -9,15 +9,7 @@ import (
 func part1(lines []string) int {
 	total := 0
 	for _, line := range lines {
-		// Find the max two-digit number by picking two digits in order
-		maxNum := 0
-		for i := 0; i < len(line)-1; i++ {
-			for j := i + 1; j < len(line); j++ {
-				num := int(line[i]-'0')*10 + int(line[j]-'0')
-				maxNum = max(maxNum, num)
-			}
-		}
-		total += maxNum
+		total += maxNumber(line, 2)
 	}
 	return total
 }
