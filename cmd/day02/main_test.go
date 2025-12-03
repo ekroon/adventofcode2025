@@ -16,7 +16,7 @@ func BenchmarkIsInvalidDouble(b *testing.B) {
 		12341234, // 8 digits, invalid
 	}
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		for _, tc := range testCases {
 			isInvalidDouble(tc)
 		}
@@ -33,7 +33,7 @@ func BenchmarkIsInvalidRepeated(b *testing.B) {
 		12341234, // 8 digits, invalid
 	}
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		for _, tc := range testCases {
 			isInvalidRepeated(tc)
 		}
@@ -52,7 +52,7 @@ func loadInput(b *testing.B) []string {
 func BenchmarkPart1RealInput(b *testing.B) {
 	lines := loadInput(b)
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		part1(lines)
 	}
 }
@@ -60,7 +60,7 @@ func BenchmarkPart1RealInput(b *testing.B) {
 func BenchmarkPart2RealInput(b *testing.B) {
 	lines := loadInput(b)
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		part2(lines)
 	}
 }
