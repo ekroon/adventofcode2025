@@ -338,9 +338,29 @@ func greedyPlace(g *Grid, allMasks [][]ShapeMask, shapes []ShapeEntry) bool {
 
 			// Try positions row by row
 			for startR := 0; startR <= maxStartR && !placed; startR++ {
-				// Find valid columns using bit manipulation
+				// Compute combined blocked mask - OR together conflicts from all rows
+				// For each row of the shape, we check what columns are blocked
+				var blocked uint64
+				for i, shapeMask := range m.rowMasks {
+					// Expand blocked positions: if grid[r] has bit set at position p,
+					// then any shape position that would overlap is blocked
+					// shapeMask at col c overlaps if grid has any bit in range [c, c+width_of_mask]
+					gridRow := g.rows[startR+i]
+					// For each bit set in shapeMask, we block columns where that bit would collide
+					for bit := shapeMask; bit != 0; {
+						bitPos := bits.TrailingZeros64(bit)
+						// If shape has cell at bitPos, grid cells at col make it blocked at col-bitPos
+						blocked |= gridRow >> bitPos
+						bit &= bit - 1
+					}
+				}
+
+				// Use blocked mask to skip columns - find first clear bit
 				for startC := 0; startC <= maxStartC && !placed; startC++ {
-					// Check if shape fits at this position
+					if blocked&(1<<startC) != 0 {
+						continue // This column is definitely blocked
+					}
+					// Verify full placement (blocked is conservative)
 					canFit := true
 					for i := range m.rowMasks {
 						if g.rows[startR+i]&(m.rowMasks[i]<<startC) != 0 {
