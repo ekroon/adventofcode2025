@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -54,129 +55,220 @@ func part1(lines []string) int {
 	return maxArea
 }
 
+// segment represents an axis-aligned line segment
+type segment struct {
+	x1, y1, x2, y2 int
+	horizontal     bool
+}
+
 func part2(lines []string) int {
 	points := parseInput(lines)
-	if len(points) < 2 {
+	if len(points) < 3 {
 		return 0
 	}
 
-	// Build set of red tiles
-	redSet := make(map[point]bool)
-	for _, p := range points {
-		redSet[p] = true
-	}
-
-	// Build set of green tiles (edges between consecutive red tiles)
-	greenSet := make(map[point]bool)
-	for i := range len(points) {
+	// Build polygon segments from consecutive red tiles
+	segments := make([]segment, len(points))
+	for i := range points {
 		p1 := points[i]
 		p2 := points[(i+1)%len(points)]
-
-		// Draw line between p1 and p2 (they share either x or y)
-		if p1.x == p2.x {
-			// Vertical line
-			minY, maxY := min(p1.y, p2.y), max(p1.y, p2.y)
-			for y := minY; y <= maxY; y++ {
-				pt := point{p1.x, y}
-				if !redSet[pt] {
-					greenSet[pt] = true
-				}
-			}
-		} else {
-			// Horizontal line
-			minX, maxX := min(p1.x, p2.x), max(p1.x, p2.x)
-			for x := minX; x <= maxX; x++ {
-				pt := point{x, p1.y}
-				if !redSet[pt] {
-					greenSet[pt] = true
-				}
-			}
+		seg := segment{
+			x1:         min(p1.x, p2.x),
+			y1:         min(p1.y, p2.y),
+			x2:         max(p1.x, p2.x),
+			y2:         max(p1.y, p2.y),
+			horizontal: p1.y == p2.y,
 		}
+		segments[i] = seg
 	}
 
-	// Find bounding box
-	minX, maxX := points[0].x, points[0].x
-	minY, maxY := points[0].y, points[0].y
+	// Collect all unique X and Y coordinates
+	xSet := make(map[int]bool)
+	ySet := make(map[int]bool)
 	for _, p := range points {
-		minX, maxX = min(minX, p.x), max(maxX, p.x)
-		minY, maxY = min(minY, p.y), max(maxY, p.y)
+		xSet[p.x] = true
+		ySet[p.y] = true
 	}
 
-	// Combine red and green as "loop" tiles, then flood fill interior
-	loopSet := make(map[point]bool)
-	for p := range redSet {
-		loopSet[p] = true
+	// Convert to sorted slices
+	xCoords := make([]int, 0, len(xSet))
+	for x := range xSet {
+		xCoords = append(xCoords, x)
 	}
-	for p := range greenSet {
-		loopSet[p] = true
+	yCoords := make([]int, 0, len(ySet))
+	for y := range ySet {
+		yCoords = append(yCoords, y)
+	}
+	slices.Sort(xCoords)
+	slices.Sort(yCoords)
+
+	// Create reverse maps for O(1) lookup
+	xIndex := make(map[int]int)
+	for i, x := range xCoords {
+		xIndex[x] = i
+	}
+	yIndex := make(map[int]int)
+	for i, y := range yCoords {
+		yIndex[y] = i
 	}
 
-	// Flood fill from outside to find exterior tiles
-	// Expand bounding box by 1 to ensure we can reach around the loop
-	exterior := make(map[point]bool)
-	queue := []point{{minX - 1, minY - 1}}
-	exterior[queue[0]] = true
+	// Build compressed grid: each cell represents the region between consecutive coordinates
+	// A cell at (i,j) in compressed space represents the rectangle from
+	// (xCoords[i], yCoords[j]) to (xCoords[i+1]-1, yCoords[j+1]-1) in real space
+	// But for our purposes, we track whether entire cells are inside the polygon
 
-	for len(queue) > 0 {
-		cur := queue[0]
-		queue = queue[1:]
+	compW := len(xCoords)
+	compH := len(yCoords)
 
-		for _, d := range []point{{0, 1}, {0, -1}, {1, 0}, {-1, 0}} {
-			np := point{cur.x + d.x, cur.y + d.y}
-			if np.x < minX-1 || np.x > maxX+1 || np.y < minY-1 || np.y > maxY+1 {
+	// For each compressed cell, determine if it's inside the polygon
+	// We use ray casting: a point is inside if the number of edge crossings
+	// to the left (going to x=-inf) is odd
+
+	// isInside checks if a point is strictly inside the polygon using ray casting
+	// We cast a ray from (x, y) to (x, -infinity) and count crossings
+	isInsidePolygon := func(x, y int) bool {
+		crossings := 0
+		for _, seg := range segments {
+			if seg.horizontal {
+				// Horizontal segment at seg.y1
+				// Ray going down from (x,y) crosses if:
+				// - seg.y1 < y (segment is below our point)
+				// - x is within the segment's x range (exclusive on one end for consistency)
+				if seg.y1 < y && seg.x1 <= x && x < seg.x2 {
+					crossings++
+				}
+			}
+			// Vertical segments don't cross a vertical ray
+		}
+		return crossings%2 == 1
+	}
+
+	// isOnBoundary checks if a point is on the polygon boundary
+	isOnBoundary := func(x, y int) bool {
+		for _, seg := range segments {
+			if seg.horizontal {
+				if y == seg.y1 && seg.x1 <= x && x <= seg.x2 {
+					return true
+				}
+			} else {
+				if x == seg.x1 && seg.y1 <= y && y <= seg.y2 {
+					return true
+				}
+			}
+		}
+		return false
+	}
+
+	// isValidPoint checks if a point is inside or on the boundary
+	isValidPoint := func(x, y int) bool {
+		return isOnBoundary(x, y) || isInsidePolygon(x, y)
+	}
+
+	// Build compressed grid of "inside" status
+	// inside[i][j] = true if the entire cell from (xCoords[i], yCoords[j]) to
+	// (xCoords[i+1]-1, yCoords[j+1]-1) is inside (or on boundary of) the polygon
+	// For corner cells (i = compW-1 or j = compH-1), they're just the single points
+	inside := make([][]bool, compW)
+	for i := range inside {
+		inside[i] = make([]bool, compH)
+	}
+
+	for i := 0; i < compW; i++ {
+		for j := 0; j < compH; j++ {
+			// Check all 4 corners of this compressed cell
+			x1 := xCoords[i]
+			y1 := yCoords[j]
+			x2 := x1
+			y2 := y1
+			if i+1 < compW {
+				x2 = xCoords[i+1] - 1
+			}
+			if j+1 < compH {
+				y2 = yCoords[j+1] - 1
+			}
+
+			// A cell is fully inside if all 4 corners are valid
+			// and no polygon edge crosses through the cell's interior
+			if !isValidPoint(x1, y1) || !isValidPoint(x2, y1) ||
+				!isValidPoint(x1, y2) || !isValidPoint(x2, y2) {
 				continue
 			}
-			if exterior[np] || loopSet[np] {
-				continue
+
+			// Check if any polygon edge crosses through this cell's interior
+			// An edge crosses if it's strictly inside the cell bounds (not on boundary)
+			edgeCrosses := false
+			for _, seg := range segments {
+				if seg.horizontal {
+					// Horizontal edge at y=seg.y1 from x=seg.x1 to x=seg.x2
+					// Crosses cell interior if seg.y1 is strictly between y1 and y2
+					// and segment overlaps with cell's x range
+					if y1 < seg.y1 && seg.y1 < y2 {
+						if seg.x1 < x2 && seg.x2 > x1 {
+							edgeCrosses = true
+							break
+						}
+					}
+				} else {
+					// Vertical edge at x=seg.x1 from y=seg.y1 to y=seg.y2
+					if x1 < seg.x1 && seg.x1 < x2 {
+						if seg.y1 < y2 && seg.y2 > y1 {
+							edgeCrosses = true
+							break
+						}
+					}
+				}
 			}
-			exterior[np] = true
-			queue = append(queue, np)
+
+			inside[i][j] = !edgeCrosses
 		}
 	}
 
-	// Interior tiles are those not on loop and not exterior
-	// Add interior to green set
-	for x := minX; x <= maxX; x++ {
-		for y := minY; y <= maxY; y++ {
-			p := point{x, y}
-			if !loopSet[p] && !exterior[p] {
-				greenSet[p] = true
+	// Build prefix sum over compressed grid for O(1) range queries
+	// prefix[i][j] = number of inside cells in [0..i-1][0..j-1]
+	prefix := make([][]int, compW+1)
+	for i := range prefix {
+		prefix[i] = make([]int, compH+1)
+	}
+
+	for i := 0; i < compW; i++ {
+		for j := 0; j < compH; j++ {
+			val := 0
+			if inside[i][j] {
+				val = 1
 			}
+			prefix[i+1][j+1] = val + prefix[i][j+1] + prefix[i+1][j] - prefix[i][j]
 		}
 	}
 
-	// Valid tiles = red + green
-	validSet := make(map[point]bool)
-	for p := range redSet {
-		validSet[p] = true
-	}
-	for p := range greenSet {
-		validSet[p] = true
+	// countInsideCells returns number of inside cells in compressed range [ci1..ci2-1][cj1..cj2-1]
+	countInsideCells := func(ci1, cj1, ci2, cj2 int) int {
+		return prefix[ci2][cj2] - prefix[ci1][cj2] - prefix[ci2][cj1] + prefix[ci1][cj1]
 	}
 
-	// Check all pairs of red points as opposite corners
+	// For each pair of red points, check if the rectangle between them is fully valid
 	maxArea := 0
-	for i := range len(points) {
+	for i := range points {
 		for j := i + 1; j < len(points); j++ {
 			p1, p2 := points[i], points[j]
 			if p1.x == p2.x || p1.y == p2.y {
 				continue
 			}
 
-			// Check if entire rectangle is valid
 			x1, x2 := min(p1.x, p2.x), max(p1.x, p2.x)
 			y1, y2 := min(p1.y, p2.y), max(p1.y, p2.y)
 
-			valid := true
-			for x := x1; x <= x2 && valid; x++ {
-				for y := y1; y <= y2 && valid; y++ {
-					if !validSet[point{x, y}] {
-						valid = false
-					}
-				}
-			}
+			// Get compressed indices
+			ci1, ci2 := xIndex[x1], xIndex[x2]
+			cj1, cj2 := yIndex[y1], yIndex[y2]
 
-			if valid {
+			// Total compressed cells in this range
+			totalCells := (ci2 - ci1) * (cj2 - cj1)
+
+			// Count how many are inside
+			insideCount := countInsideCells(ci1, cj1, ci2, cj2)
+
+			// Rectangle is valid if all cells are inside
+			if insideCount == totalCells {
 				area := (x2 - x1 + 1) * (y2 - y1 + 1)
 				if area > maxArea {
 					maxArea = area
