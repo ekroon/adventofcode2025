@@ -500,11 +500,13 @@ func part1(lines []string) int {
 			// Pre-allocate for this worker
 			shapes := make([]ShapeEntry, 0, 300)
 			g := &Grid{rows: make([]uint64, 64)}
+			localCount := 0
 			for r := range jobs {
 				if canFit(allMasks, r, cellCount, shapes, g) {
-					count.Add(1)
+					localCount++
 				}
 			}
+			count.Add(int64(localCount))
 		}()
 	}
 
