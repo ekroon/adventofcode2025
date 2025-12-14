@@ -354,15 +354,16 @@ func greedyPlace(g *Grid, allMasks [][]ShapeMask, shapes []ShapeEntry) bool {
 			rowMasks := m.rowMasks
 			nRows := len(rowMasks)
 			validMask := uint64((1 << (maxStartC + 1)) - 1)
+			shifts := m.bitShifts
+			rows := g.rows
+			nShifts := len(shifts)
 
 			// Try positions row by row
 			for startR := 0; startR <= maxStartR; startR++ {
 				// Compute combined blocked mask using precomputed bit shifts
 				// Unroll for common cell counts (5, 6, 7)
-				shifts := m.bitShifts
-				rows := g.rows
 				var blocked uint64
-				switch len(shifts) {
+				switch nShifts {
 				case 5:
 					s0, s1, s2, s3, s4 := shifts[0], shifts[1], shifts[2], shifts[3], shifts[4]
 					blocked = rows[startR+(s0>>8)]>>(s0&0xFF) |
