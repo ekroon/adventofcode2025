@@ -2,7 +2,7 @@ package main
 
 import (
 	"bufio"
-	"cmp"
+	"container/heap"
 	"fmt"
 	"maps"
 	"os"
@@ -37,23 +37,35 @@ func distanceSquared(a, b Point) int {
 	return dx*dx + dy*dy + dz*dz
 }
 
-// buildSortedEdges parses points and returns them with all edges sorted by distance
-func buildSortedEdges(lines []string) ([]Point, []Edge) {
+// EdgeHeap implements a min-heap of edges by distance
+type EdgeHeap []Edge
+
+func (h EdgeHeap) Len() int           { return len(h) }
+func (h EdgeHeap) Less(i, j int) bool { return h[i].distSq < h[j].distSq }
+func (h EdgeHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
+func (h *EdgeHeap) Push(x any)        { *h = append(*h, x.(Edge)) }
+func (h *EdgeHeap) Pop() any {
+	old := *h
+	n := len(old)
+	x := old[n-1]
+	*h = old[:n-1]
+	return x
+}
+
+// buildEdgeHeap parses points and returns them with all edges in a min-heap
+func buildEdgeHeap(lines []string) ([]Point, *EdgeHeap) {
 	points := parsePoints(lines)
 	n := len(points)
 
-	edges := make([]Edge, 0, n*(n-1)/2)
+	edges := make(EdgeHeap, 0, n*(n-1)/2)
 	for i := range n {
 		for j := i + 1; j < n; j++ {
 			edges = append(edges, Edge{i, j, distanceSquared(points[i], points[j])})
 		}
 	}
+	heap.Init(&edges)
 
-	slices.SortFunc(edges, func(a, b Edge) int {
-		return cmp.Compare(a.distSq, b.distSq)
-	})
-
-	return points, edges
+	return points, &edges
 }
 
 // Union-Find with path compression and union by rank
@@ -98,16 +110,14 @@ func (uf *UnionFind) union(x, y int) bool {
 }
 
 func part1(lines []string) int {
-	points, edges := buildSortedEdges(lines)
+	points, edges := buildEdgeHeap(lines)
 	n := len(points)
 
 	// Connect 1000 closest pairs
 	uf := newUnionFind(n)
 	connections := 0
-	for _, e := range edges {
-		if connections >= 1000 {
-			break
-		}
+	for edges.Len() > 0 && connections < 1000 {
+		e := heap.Pop(edges).(Edge)
 		uf.union(e.i, e.j)
 		connections++
 	}
@@ -128,13 +138,14 @@ func part1(lines []string) int {
 }
 
 func part2(lines []string) int {
-	points, edges := buildSortedEdges(lines)
+	points, edges := buildEdgeHeap(lines)
 	n := len(points)
 
 	// Connect until all in one circuit
 	uf := newUnionFind(n)
 	var lastEdge Edge
-	for _, e := range edges {
+	for edges.Len() > 0 {
+		e := heap.Pop(edges).(Edge)
 		if uf.union(e.i, e.j) {
 			lastEdge = e
 			// Check if all connected (root's size equals n)
