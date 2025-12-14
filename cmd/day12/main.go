@@ -340,64 +340,80 @@ func (s *Solver) solve(idx int, skipsLeft int) bool {
 func greedyPlace(g *Grid, allMasks [][]ShapeMask, shapes []ShapeEntry) bool {
 	for _, se := range shapes {
 		placed := false
+		orientations := allMasks[se.shapeIdx]
+
 		// Try each orientation
-		for mi := range allMasks[se.shapeIdx] {
-			if placed {
-				break
-			}
-			m := &allMasks[se.shapeIdx][mi]
+	orientLoop:
+		for mi := range orientations {
+			m := &orientations[mi]
 			maxStartR := g.height - m.maxRow - 1
 			maxStartC := g.width - m.maxCol - 1
+			if maxStartR < 0 || maxStartC < 0 {
+				continue
+			}
 			rowMasks := m.rowMasks
 			nRows := len(rowMasks)
+			validMask := uint64((1 << (maxStartC + 1)) - 1)
 
 			// Try positions row by row
-			for startR := 0; startR <= maxStartR && !placed; startR++ {
+			for startR := 0; startR <= maxStartR; startR++ {
 				// Compute combined blocked mask using precomputed bit shifts
 				var blocked uint64
 				for _, shift := range m.bitShifts {
 					blocked |= g.rows[startR+(shift>>8)] >> (shift & 0xFF)
 				}
 
-				// Mask out columns beyond maxStartC
-				available := (^blocked) & uint64((1<<(maxStartC+1))-1)
+				// Find available positions
+				available := (^blocked) & validMask
+				if available == 0 {
+					continue
+				}
 
-				// Iterate through available positions using bit tricks
-				for available != 0 && !placed {
-					startC := bits.TrailingZeros64(available)
-					available &= available - 1 // Clear lowest bit
+				// Try first available position (likely to succeed based on blocked mask)
+				startC := bits.TrailingZeros64(available)
 
-					// Verify full placement - unroll for small row counts
+				// Verify and place in one pass for common cases
+				switch nRows {
+				case 1:
+					m0 := rowMasks[0] << startC
+					if g.rows[startR]&m0 == 0 {
+						g.rows[startR] |= m0
+						placed = true
+						break orientLoop
+					}
+				case 2:
+					m0, m1 := rowMasks[0]<<startC, rowMasks[1]<<startC
+					if g.rows[startR]&m0 == 0 && g.rows[startR+1]&m1 == 0 {
+						g.rows[startR] |= m0
+						g.rows[startR+1] |= m1
+						placed = true
+						break orientLoop
+					}
+				case 3:
+					m0, m1, m2 := rowMasks[0]<<startC, rowMasks[1]<<startC, rowMasks[2]<<startC
+					if g.rows[startR]&m0 == 0 && g.rows[startR+1]&m1 == 0 && g.rows[startR+2]&m2 == 0 {
+						g.rows[startR] |= m0
+						g.rows[startR+1] |= m1
+						g.rows[startR+2] |= m2
+						placed = true
+						break orientLoop
+					}
+				case 4:
+					m0, m1, m2, m3 := rowMasks[0]<<startC, rowMasks[1]<<startC, rowMasks[2]<<startC, rowMasks[3]<<startC
+					if g.rows[startR]&m0 == 0 && g.rows[startR+1]&m1 == 0 && g.rows[startR+2]&m2 == 0 && g.rows[startR+3]&m3 == 0 {
+						g.rows[startR] |= m0
+						g.rows[startR+1] |= m1
+						g.rows[startR+2] |= m2
+						g.rows[startR+3] |= m3
+						placed = true
+						break orientLoop
+					}
+				default:
 					canFit := true
-					switch nRows {
-					case 1:
-						if g.rows[startR]&(rowMasks[0]<<startC) != 0 {
+					for i := 0; i < nRows; i++ {
+						if g.rows[startR+i]&(rowMasks[i]<<startC) != 0 {
 							canFit = false
-						}
-					case 2:
-						if g.rows[startR]&(rowMasks[0]<<startC) != 0 ||
-							g.rows[startR+1]&(rowMasks[1]<<startC) != 0 {
-							canFit = false
-						}
-					case 3:
-						if g.rows[startR]&(rowMasks[0]<<startC) != 0 ||
-							g.rows[startR+1]&(rowMasks[1]<<startC) != 0 ||
-							g.rows[startR+2]&(rowMasks[2]<<startC) != 0 {
-							canFit = false
-						}
-					case 4:
-						if g.rows[startR]&(rowMasks[0]<<startC) != 0 ||
-							g.rows[startR+1]&(rowMasks[1]<<startC) != 0 ||
-							g.rows[startR+2]&(rowMasks[2]<<startC) != 0 ||
-							g.rows[startR+3]&(rowMasks[3]<<startC) != 0 {
-							canFit = false
-						}
-					default:
-						for i := 0; i < nRows; i++ {
-							if g.rows[startR+i]&(rowMasks[i]<<startC) != 0 {
-								canFit = false
-								break
-							}
+							break
 						}
 					}
 					if canFit {
@@ -405,6 +421,29 @@ func greedyPlace(g *Grid, allMasks [][]ShapeMask, shapes []ShapeEntry) bool {
 							g.rows[startR+i] |= rowMasks[i] << startC
 						}
 						placed = true
+						break orientLoop
+					}
+				}
+
+				// If first position failed, try remaining
+				available &= available - 1
+				for available != 0 {
+					startC = bits.TrailingZeros64(available)
+					available &= available - 1
+
+					canFit := true
+					for i := 0; i < nRows; i++ {
+						if g.rows[startR+i]&(rowMasks[i]<<startC) != 0 {
+							canFit = false
+							break
+						}
+					}
+					if canFit {
+						for i := 0; i < nRows; i++ {
+							g.rows[startR+i] |= rowMasks[i] << startC
+						}
+						placed = true
+						break orientLoop
 					}
 				}
 			}
