@@ -36,20 +36,28 @@ func parseInput(lines []string) ([]Range, []int) {
 	return ranges, numbers
 }
 
-func inAnyRange(n int, ranges []Range) bool {
-	for _, r := range ranges {
-		if n >= r.low && n <= r.high {
-			return true
-		}
+func inMergedRanges(n int, merged []Range) bool {
+	// Binary search: find the first range where low > n
+	i, _ := slices.BinarySearchFunc(merged, n, func(r Range, target int) int {
+		return r.low - target
+	})
+	// Check the range before (if exists) - it could contain n
+	if i > 0 && n <= merged[i-1].high {
+		return true
+	}
+	// Check if we landed exactly on a range that starts with n
+	if i < len(merged) && n >= merged[i].low && n <= merged[i].high {
+		return true
 	}
 	return false
 }
 
 func part1(lines []string) int {
 	ranges, numbers := parseInput(lines)
+	merged := mergeRanges(ranges)
 	count := 0
 	for _, n := range numbers {
-		if inAnyRange(n, ranges) {
+		if inMergedRanges(n, merged) {
 			count++
 		}
 	}
