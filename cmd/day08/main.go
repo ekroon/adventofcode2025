@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"container/heap"
 	"fmt"
 	"maps"
 	"os"
@@ -16,8 +15,8 @@ type Point struct {
 }
 
 type Edge struct {
-	i, j   int
 	distSq int
+	i, j   uint16
 }
 
 func parsePoints(lines []string) []Point {
@@ -52,6 +51,43 @@ func (h *EdgeHeap) Pop() any {
 	return x
 }
 
+// pop returns and removes the minimum edge without interface allocation
+func (h *EdgeHeap) pop() Edge {
+	e := (*h)[0]
+	n := len(*h) - 1
+	(*h)[0] = (*h)[n]
+	*h = (*h)[:n]
+	if n > 0 {
+		h.down(0)
+	}
+	return e
+}
+
+func (h EdgeHeap) down(i int) {
+	for {
+		left := 2*i + 1
+		if left >= len(h) {
+			break
+		}
+		j := left
+		if right := left + 1; right < len(h) && h[right].distSq < h[left].distSq {
+			j = right
+		}
+		if h[i].distSq <= h[j].distSq {
+			break
+		}
+		h[i], h[j] = h[j], h[i]
+		i = j
+	}
+}
+
+// init establishes heap ordering
+func (h EdgeHeap) init() {
+	for i := len(h)/2 - 1; i >= 0; i-- {
+		h.down(i)
+	}
+}
+
 // buildEdgeHeap parses points and returns them with all edges in a min-heap
 func buildEdgeHeap(lines []string) ([]Point, *EdgeHeap) {
 	points := parsePoints(lines)
@@ -60,10 +96,10 @@ func buildEdgeHeap(lines []string) ([]Point, *EdgeHeap) {
 	edges := make(EdgeHeap, 0, n*(n-1)/2)
 	for i := range n {
 		for j := i + 1; j < n; j++ {
-			edges = append(edges, Edge{i, j, distanceSquared(points[i], points[j])})
+			edges = append(edges, Edge{distanceSquared(points[i], points[j]), uint16(i), uint16(j)})
 		}
 	}
-	heap.Init(&edges)
+	edges.init()
 
 	return points, &edges
 }
@@ -117,8 +153,8 @@ func part1(lines []string) int {
 	uf := newUnionFind(n)
 	connections := 0
 	for edges.Len() > 0 && connections < 1000 {
-		e := heap.Pop(edges).(Edge)
-		uf.union(e.i, e.j)
+		e := edges.pop()
+		uf.union(int(e.i), int(e.j))
 		connections++
 	}
 
@@ -145,11 +181,11 @@ func part2(lines []string) int {
 	uf := newUnionFind(n)
 	var lastEdge Edge
 	for edges.Len() > 0 {
-		e := heap.Pop(edges).(Edge)
-		if uf.union(e.i, e.j) {
+		e := edges.pop()
+		if uf.union(int(e.i), int(e.j)) {
 			lastEdge = e
 			// Check if all connected (root's size equals n)
-			if uf.size[uf.find(e.i)] == n {
+			if uf.size[uf.find(int(e.i))] == n {
 				break
 			}
 		}
