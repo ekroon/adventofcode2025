@@ -358,9 +358,24 @@ func greedyPlace(g *Grid, allMasks [][]ShapeMask, shapes []ShapeEntry) bool {
 			// Try positions row by row
 			for startR := 0; startR <= maxStartR; startR++ {
 				// Compute combined blocked mask using precomputed bit shifts
+				// Unroll for 7 cells (common case for this puzzle)
+				shifts := m.bitShifts
+				rows := g.rows
 				var blocked uint64
-				for _, shift := range m.bitShifts {
-					blocked |= g.rows[startR+(shift>>8)] >> (shift & 0xFF)
+				switch len(shifts) {
+				case 7:
+					s0, s1, s2, s3, s4, s5, s6 := shifts[0], shifts[1], shifts[2], shifts[3], shifts[4], shifts[5], shifts[6]
+					blocked = rows[startR+(s0>>8)]>>(s0&0xFF) |
+						rows[startR+(s1>>8)]>>(s1&0xFF) |
+						rows[startR+(s2>>8)]>>(s2&0xFF) |
+						rows[startR+(s3>>8)]>>(s3&0xFF) |
+						rows[startR+(s4>>8)]>>(s4&0xFF) |
+						rows[startR+(s5>>8)]>>(s5&0xFF) |
+						rows[startR+(s6>>8)]>>(s6&0xFF)
+				default:
+					for _, shift := range shifts {
+						blocked |= rows[startR+(shift>>8)] >> (shift & 0xFF)
+					}
 				}
 
 				// Find available positions
