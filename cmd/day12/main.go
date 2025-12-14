@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/bits"
 	"os"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -322,6 +323,7 @@ func (s *Solver) solve(idx int, skipsLeft int) bool {
 }
 
 // Greedy placement - try row by row, packing tightly
+// Uses bitmask operations to find valid positions faster
 func greedyPlace(g *Grid, allMasks [][]ShapeMask, shapes []ShapeEntry) bool {
 	for _, se := range shapes {
 		placed := false
@@ -333,11 +335,24 @@ func greedyPlace(g *Grid, allMasks [][]ShapeMask, shapes []ShapeEntry) bool {
 			m := &allMasks[se.shapeIdx][mi]
 			maxStartR := g.height - m.maxRow - 1
 			maxStartC := g.width - m.maxCol - 1
-			// Try positions, prioritizing top-left
+
+			// Try positions row by row
 			for startR := 0; startR <= maxStartR && !placed; startR++ {
+				// Find valid columns using bit manipulation
 				for startC := 0; startC <= maxStartC && !placed; startC++ {
-					if g.canPlace(m, startR, startC) {
-						g.place(m, startR, startC)
+					// Check if shape fits at this position
+					canFit := true
+					for i := range m.rowMasks {
+						if g.rows[startR+i]&(m.rowMasks[i]<<startC) != 0 {
+							canFit = false
+							break
+						}
+					}
+					if canFit {
+						// Place the shape
+						for i := range m.rowMasks {
+							g.rows[startR+i] |= m.rowMasks[i] << startC
+						}
 						placed = true
 					}
 				}
@@ -350,9 +365,22 @@ func greedyPlace(g *Grid, allMasks [][]ShapeMask, shapes []ShapeEntry) bool {
 	return true
 }
 
-func canFit(allMasks [][]ShapeMask, region Region, cellCount int) bool {
-	// Build shape list
-	var shapes []ShapeEntry
+func (g *Grid) reset(w, h int) {
+	g.width = w
+	g.height = h
+	if cap(g.rows) >= h {
+		g.rows = g.rows[:h]
+		for i := range g.rows {
+			g.rows[i] = 0
+		}
+	} else {
+		g.rows = make([]uint64, h)
+	}
+}
+
+func canFit(allMasks [][]ShapeMask, region Region, cellCount int, shapes []ShapeEntry, g *Grid) bool {
+	// Build shape list (reusing provided slice)
+	shapes = shapes[:0]
 	totalCells := 0
 	for shapeIdx, count := range region.counts {
 		if count > 0 && len(allMasks[shapeIdx]) > 0 {
@@ -372,15 +400,16 @@ func canFit(allMasks [][]ShapeMask, region Region, cellCount int) bool {
 		return false
 	}
 
-	// Try greedy first
-	g := newGrid(region.width, region.height)
+	// Try greedy first (reusing grid)
+	g.reset(region.width, region.height)
 	if greedyPlace(g, allMasks, shapes) {
 		return true
 	}
 
 	// Fall back to backtracking
+	g.reset(region.width, region.height)
 	solver := &Solver{
-		grid:     newGrid(region.width, region.height),
+		grid:     g,
 		allMasks: allMasks,
 		shapes:   shapes,
 	}
@@ -392,18 +421,32 @@ func canFit(allMasks [][]ShapeMask, region Region, cellCount int) bool {
 func part1(lines []string) int {
 	allMasks, regions, cellCount := parseInput(lines)
 
+	numWorkers := runtime.NumCPU()
+	jobs := make(chan Region, len(regions))
 	var wg sync.WaitGroup
 	var count atomic.Int64
 
-	for _, region := range regions {
+	// Start worker pool
+	for range numWorkers {
 		wg.Add(1)
-		go func(r Region) {
+		go func() {
 			defer wg.Done()
-			if canFit(allMasks, r, cellCount) {
-				count.Add(1)
+			// Pre-allocate for this worker
+			shapes := make([]ShapeEntry, 0, 300)
+			g := &Grid{rows: make([]uint64, 64)}
+			for r := range jobs {
+				if canFit(allMasks, r, cellCount, shapes, g) {
+					count.Add(1)
+				}
 			}
-		}(region)
+		}()
 	}
+
+	// Send all jobs
+	for _, region := range regions {
+		jobs <- region
+	}
+	close(jobs)
 
 	wg.Wait()
 	return int(count.Load())
