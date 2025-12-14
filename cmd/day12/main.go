@@ -18,10 +18,11 @@ type Shape []struct{ r, c int }
 
 // ShapeMask is a precomputed bitmask representation of a shape
 type ShapeMask struct {
-	rowMasks []uint64 // mask for each row (relative to top of shape)
-	minRow   int      // minimum row offset
-	maxRow   int      // maximum row offset
-	maxCol   int      // maximum column offset
+	rowMasks  []uint64 // mask for each row (relative to top of shape)
+	bitShifts []int    // precomputed bit positions for blocked mask
+	minRow    int      // minimum row offset
+	maxRow    int      // maximum row offset
+	maxCol    int      // maximum column offset
 }
 
 // Generate all unique orientations of a shape
@@ -106,11 +107,23 @@ func shapeToMask(s Shape) ShapeMask {
 		rowMasks[p.r] |= 1 << p.c
 	}
 
+	// Precompute bit positions for blocked mask calculation
+	// Each entry is (rowIndex << 8) | bitPos for efficient iteration
+	var bitShifts []int
+	for i, mask := range rowMasks {
+		for bit := mask; bit != 0; {
+			bitPos := bits.TrailingZeros64(bit)
+			bitShifts = append(bitShifts, (i<<8)|bitPos)
+			bit &= bit - 1
+		}
+	}
+
 	return ShapeMask{
-		rowMasks: rowMasks,
-		minRow:   0,
-		maxRow:   maxR,
-		maxCol:   maxC,
+		rowMasks:  rowMasks,
+		bitShifts: bitShifts,
+		minRow:    0,
+		maxRow:    maxR,
+		maxCol:    maxC,
 	}
 }
 
@@ -338,15 +351,12 @@ func greedyPlace(g *Grid, allMasks [][]ShapeMask, shapes []ShapeEntry) bool {
 
 			// Try positions row by row
 			for startR := 0; startR <= maxStartR && !placed; startR++ {
-				// Compute combined blocked mask - OR together conflicts from all rows
+				// Compute combined blocked mask using precomputed bit shifts
 				var blocked uint64
-				for i, shapeMask := range m.rowMasks {
-					gridRow := g.rows[startR+i]
-					for bit := shapeMask; bit != 0; {
-						bitPos := bits.TrailingZeros64(bit)
-						blocked |= gridRow >> bitPos
-						bit &= bit - 1
-					}
+				for _, shift := range m.bitShifts {
+					rowIdx := shift >> 8
+					bitPos := shift & 0xFF
+					blocked |= g.rows[startR+rowIdx] >> bitPos
 				}
 
 				// Mask out columns beyond maxStartC
@@ -433,6 +443,19 @@ func canFit(allMasks [][]ShapeMask, region Region, cellCount int, shapes []Shape
 
 	skipsAllowed := gridArea - totalCells
 	return solver.solve(0, skipsAllowed)
+}
+
+func part1Sequential(lines []string) int {
+	allMasks, regions, cellCount := parseInput(lines)
+	shapes := make([]ShapeEntry, 0, 300)
+	g := &Grid{rows: make([]uint64, 64)}
+	count := 0
+	for _, r := range regions {
+		if canFit(allMasks, r, cellCount, shapes, g) {
+			count++
+		}
+	}
+	return count
 }
 
 func part1(lines []string) int {
