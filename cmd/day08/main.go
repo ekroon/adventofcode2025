@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"cmp"
 	"fmt"
+	"maps"
 	"os"
 	"slices"
 	"strconv"
@@ -34,6 +35,25 @@ func parsePoints(lines []string) []Point {
 func distanceSquared(a, b Point) int {
 	dx, dy, dz := a.x-b.x, a.y-b.y, a.z-b.z
 	return dx*dx + dy*dy + dz*dz
+}
+
+// buildSortedEdges parses points and returns them with all edges sorted by distance
+func buildSortedEdges(lines []string) ([]Point, []Edge) {
+	points := parsePoints(lines)
+	n := len(points)
+
+	edges := make([]Edge, 0, n*(n-1)/2)
+	for i := range n {
+		for j := i + 1; j < n; j++ {
+			edges = append(edges, Edge{i, j, distanceSquared(points[i], points[j])})
+		}
+	}
+
+	slices.SortFunc(edges, func(a, b Edge) int {
+		return cmp.Compare(a.distSq, b.distSq)
+	})
+
+	return points, edges
 }
 
 // Union-Find with path compression and union by rank
@@ -78,21 +98,8 @@ func (uf *UnionFind) union(x, y int) bool {
 }
 
 func part1(lines []string) int {
-	points := parsePoints(lines)
+	points, edges := buildSortedEdges(lines)
 	n := len(points)
-
-	// Generate all edges with distances
-	edges := make([]Edge, 0, n*(n-1)/2)
-	for i := range n {
-		for j := i + 1; j < n; j++ {
-			edges = append(edges, Edge{i, j, distanceSquared(points[i], points[j])})
-		}
-	}
-
-	// Sort by distance
-	slices.SortFunc(edges, func(a, b Edge) int {
-		return cmp.Compare(a.distSq, b.distSq)
-	})
 
 	// Connect 1000 closest pairs
 	uf := newUnionFind(n)
@@ -105,29 +112,40 @@ func part1(lines []string) int {
 		connections++
 	}
 
-	// Find circuit sizes
+	// Collect circuit sizes
 	sizes := make(map[int]int)
 	for i := range n {
 		root := uf.find(i)
 		sizes[root] = uf.size[root]
 	}
 
-	// Get unique sizes and sort descending
-	sizeList := make([]int, 0, len(sizes))
-	for _, s := range sizes {
-		sizeList = append(sizeList, s)
-	}
-	slices.SortFunc(sizeList, func(a, b int) int {
-		return cmp.Compare(b, a) // descending
-	})
+	// Sort descending and multiply top 3
+	sizeList := slices.Collect(maps.Values(sizes))
+	slices.Sort(sizeList)
+	slices.Reverse(sizeList)
 
-	// Multiply top 3
 	return sizeList[0] * sizeList[1] * sizeList[2]
 }
 
 func part2(lines []string) int {
-	// TODO: implement
-	return 0
+	points, edges := buildSortedEdges(lines)
+	n := len(points)
+
+	// Connect until all in one circuit
+	uf := newUnionFind(n)
+	var lastEdge Edge
+	for _, e := range edges {
+		if uf.union(e.i, e.j) {
+			lastEdge = e
+			// Check if all connected (root's size equals n)
+			if uf.size[uf.find(e.i)] == n {
+				break
+			}
+		}
+	}
+
+	// Multiply X coordinates of last connected pair
+	return points[lastEdge.i].x * points[lastEdge.j].x
 }
 
 func main() {
