@@ -488,33 +488,31 @@ func part1(lines []string) int {
 	allMasks, regions, cellCount := parseInput(lines)
 
 	numWorkers := runtime.NumCPU()
-	jobs := make(chan Region, len(regions))
 	var wg sync.WaitGroup
 	var count atomic.Int64
+	var idx atomic.Int64
+	n := int64(len(regions))
 
 	// Start worker pool
 	for range numWorkers {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			// Pre-allocate for this worker
 			shapes := make([]ShapeEntry, 0, 300)
 			g := &Grid{rows: make([]uint64, 64)}
 			localCount := 0
-			for r := range jobs {
-				if canFit(allMasks, r, cellCount, shapes, g) {
+			for {
+				i := idx.Add(1) - 1
+				if i >= n {
+					break
+				}
+				if canFit(allMasks, regions[i], cellCount, shapes, g) {
 					localCount++
 				}
 			}
 			count.Add(int64(localCount))
 		}()
 	}
-
-	// Send all jobs
-	for _, region := range regions {
-		jobs <- region
-	}
-	close(jobs)
 
 	wg.Wait()
 	return int(count.Load())
