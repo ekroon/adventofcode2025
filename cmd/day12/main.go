@@ -348,37 +348,61 @@ func greedyPlace(g *Grid, allMasks [][]ShapeMask, shapes []ShapeEntry) bool {
 			m := &allMasks[se.shapeIdx][mi]
 			maxStartR := g.height - m.maxRow - 1
 			maxStartC := g.width - m.maxCol - 1
+			rowMasks := m.rowMasks
+			nRows := len(rowMasks)
 
 			// Try positions row by row
 			for startR := 0; startR <= maxStartR && !placed; startR++ {
 				// Compute combined blocked mask using precomputed bit shifts
 				var blocked uint64
 				for _, shift := range m.bitShifts {
-					rowIdx := shift >> 8
-					bitPos := shift & 0xFF
-					blocked |= g.rows[startR+rowIdx] >> bitPos
+					blocked |= g.rows[startR+(shift>>8)] >> (shift & 0xFF)
 				}
 
 				// Mask out columns beyond maxStartC
-				validMask := uint64((1 << (maxStartC + 1)) - 1)
-				available := (^blocked) & validMask
+				available := (^blocked) & uint64((1<<(maxStartC+1))-1)
 
 				// Iterate through available positions using bit tricks
 				for available != 0 && !placed {
 					startC := bits.TrailingZeros64(available)
 					available &= available - 1 // Clear lowest bit
 
-					// Verify full placement
+					// Verify full placement - unroll for small row counts
 					canFit := true
-					for i := range m.rowMasks {
-						if g.rows[startR+i]&(m.rowMasks[i]<<startC) != 0 {
+					switch nRows {
+					case 1:
+						if g.rows[startR]&(rowMasks[0]<<startC) != 0 {
 							canFit = false
-							break
+						}
+					case 2:
+						if g.rows[startR]&(rowMasks[0]<<startC) != 0 ||
+							g.rows[startR+1]&(rowMasks[1]<<startC) != 0 {
+							canFit = false
+						}
+					case 3:
+						if g.rows[startR]&(rowMasks[0]<<startC) != 0 ||
+							g.rows[startR+1]&(rowMasks[1]<<startC) != 0 ||
+							g.rows[startR+2]&(rowMasks[2]<<startC) != 0 {
+							canFit = false
+						}
+					case 4:
+						if g.rows[startR]&(rowMasks[0]<<startC) != 0 ||
+							g.rows[startR+1]&(rowMasks[1]<<startC) != 0 ||
+							g.rows[startR+2]&(rowMasks[2]<<startC) != 0 ||
+							g.rows[startR+3]&(rowMasks[3]<<startC) != 0 {
+							canFit = false
+						}
+					default:
+						for i := 0; i < nRows; i++ {
+							if g.rows[startR+i]&(rowMasks[i]<<startC) != 0 {
+								canFit = false
+								break
+							}
 						}
 					}
 					if canFit {
-						for i := range m.rowMasks {
-							g.rows[startR+i] |= m.rowMasks[i] << startC
+						for i := 0; i < nRows; i++ {
+							g.rows[startR+i] |= rowMasks[i] << startC
 						}
 						placed = true
 					}
