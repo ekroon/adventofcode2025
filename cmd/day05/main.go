@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -55,9 +56,41 @@ func part1(lines []string) int {
 	return count
 }
 
+func mergeRanges(ranges []Range) []Range {
+	if len(ranges) == 0 {
+		return nil
+	}
+
+	// Sort by low bound
+	sorted := make([]Range, len(ranges))
+	copy(sorted, ranges)
+	slices.SortFunc(sorted, func(a, b Range) int {
+		return a.low - b.low
+	})
+
+	merged := []Range{sorted[0]}
+	for _, r := range sorted[1:] {
+		last := &merged[len(merged)-1]
+		if r.low <= last.high+1 {
+			// Overlapping or adjacent, extend the range
+			last.high = max(last.high, r.high)
+		} else {
+			// Gap, start new range
+			merged = append(merged, r)
+		}
+	}
+	return merged
+}
+
 func part2(lines []string) int {
-	// TODO: implement
-	return 0
+	ranges, _ := parseInput(lines)
+	merged := mergeRanges(ranges)
+
+	count := 0
+	for _, r := range merged {
+		count += r.high - r.low + 1
+	}
+	return count
 }
 
 func main() {
