@@ -3,15 +3,27 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"math/bits"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 )
 
 // Shape represents a present shape as a list of (row, col) offsets
 type Shape []struct{ r, c int }
 
-// Generate all 8 orientations (4 rotations x 2 flips) of a shape
+// ShapeMask is a precomputed bitmask representation of a shape
+type ShapeMask struct {
+	rowMasks []uint64 // mask for each row (relative to top of shape)
+	minRow   int      // minimum row offset
+	maxRow   int      // maximum row offset
+	maxCol   int      // maximum column offset
+}
+
+// Generate all unique orientations of a shape
 func allOrientations(s Shape) []Shape {
 	orientations := make(map[string]Shape)
 
@@ -36,7 +48,6 @@ func allOrientations(s Shape) []Shape {
 }
 
 func rotate90(s Shape) Shape {
-	// Rotate 90 degrees clockwise: (r, c) -> (c, -r)
 	result := make(Shape, len(s))
 	for i, p := range s {
 		result[i] = struct{ r, c int }{p.c, -p.r}
@@ -45,7 +56,6 @@ func rotate90(s Shape) Shape {
 }
 
 func flipShape(s Shape) Shape {
-	// Flip horizontally: (r, c) -> (r, -c)
 	result := make(Shape, len(s))
 	for i, p := range s {
 		result[i] = struct{ r, c int }{p.r, -p.c}
@@ -70,74 +80,39 @@ func normalize(s Shape) Shape {
 }
 
 func shapeKey(s Shape) string {
-	// Create a canonical string representation
 	points := make([]string, len(s))
 	for i, p := range s {
 		points[i] = fmt.Sprintf("%d,%d", p.r, p.c)
 	}
-	// Sort for consistency
-	for i := range points {
-		for j := i + 1; j < len(points); j++ {
-			if points[i] > points[j] {
-				points[i], points[j] = points[j], points[i]
-			}
-		}
-	}
+	slices.Sort(points)
 	return strings.Join(points, ";")
 }
 
-// Grid represents the region being filled
-type Grid struct {
-	width, height int
-	cells         [][]bool // true if occupied
-}
-
-func newGrid(width, height int) *Grid {
-	cells := make([][]bool, height)
-	for i := range cells {
-		cells[i] = make([]bool, width)
+// Convert shape to bitmask form
+func shapeToMask(s Shape) ShapeMask {
+	if len(s) == 0 {
+		return ShapeMask{}
 	}
-	return &Grid{width: width, height: height, cells: cells}
-}
 
-func (g *Grid) canPlace(s Shape, startR, startC int) bool {
+	maxR, maxC := 0, 0
 	for _, p := range s {
-		r, c := startR+p.r, startC+p.c
-		if r < 0 || r >= g.height || c < 0 || c >= g.width {
-			return false
-		}
-		if g.cells[r][c] {
-			return false
-		}
+		maxR = max(maxR, p.r)
+		maxC = max(maxC, p.c)
 	}
-	return true
-}
 
-func (g *Grid) place(s Shape, startR, startC int) {
+	rowMasks := make([]uint64, maxR+1)
 	for _, p := range s {
-		g.cells[startR+p.r][startC+p.c] = true
+		rowMasks[p.r] |= 1 << p.c
+	}
+
+	return ShapeMask{
+		rowMasks: rowMasks,
+		minRow:   0,
+		maxRow:   maxR,
+		maxCol:   maxC,
 	}
 }
 
-func (g *Grid) remove(s Shape, startR, startC int) {
-	for _, p := range s {
-		g.cells[startR+p.r][startC+p.c] = false
-	}
-}
-
-// Find the first empty cell (top-left to bottom-right)
-func (g *Grid) firstEmpty() (int, int, bool) {
-	for r := 0; r < g.height; r++ {
-		for c := 0; c < g.width; c++ {
-			if !g.cells[r][c] {
-				return r, c, true
-			}
-		}
-	}
-	return -1, -1, false
-}
-
-// Parse a shape from lines like "###", "##.", "##."
 func parseShape(lines []string) Shape {
 	var shape Shape
 	for r, line := range lines {
@@ -153,16 +128,14 @@ func parseShape(lines []string) Shape {
 // Region problem
 type Region struct {
 	width, height int
-	counts        []int // count of each shape needed
+	counts        []int
 }
 
-// isRegionLine checks if a line is a region definition (WxH: ...)
 func isRegionLine(line string) bool {
 	return strings.Contains(line, "x") && strings.Contains(line, ": ")
 }
 
-func parseInput(lines []string) ([][]Shape, []Region) {
-	// Find first region line - separates shapes from regions
+func parseInput(lines []string) ([][]ShapeMask, []Region, int) {
 	regionStart := -1
 	for i, line := range lines {
 		if isRegionLine(line) {
@@ -171,7 +144,6 @@ func parseInput(lines []string) ([][]Shape, []Region) {
 		}
 	}
 
-	// Parse shapes
 	shapeLines := lines[:regionStart]
 	baseShapes := []Shape{}
 	var currentShapeLines []string
@@ -189,13 +161,20 @@ func parseInput(lines []string) ([][]Shape, []Region) {
 		baseShapes = append(baseShapes, parseShape(currentShapeLines))
 	}
 
-	// Precompute all orientations for each shape
-	allShapes := make([][]Shape, len(baseShapes))
+	// Convert to masks for all orientations
+	allMasks := make([][]ShapeMask, len(baseShapes))
+	cellCount := 0
 	for i, s := range baseShapes {
-		allShapes[i] = allOrientations(s)
+		orientations := allOrientations(s)
+		allMasks[i] = make([]ShapeMask, len(orientations))
+		for j, o := range orientations {
+			allMasks[i][j] = shapeToMask(o)
+		}
+		if len(s) > 0 {
+			cellCount = len(s)
+		}
 	}
 
-	// Parse regions
 	regionLines := lines[regionStart:]
 	regions := []Region{}
 	for _, line := range regionLines {
@@ -212,116 +191,225 @@ func parseInput(lines []string) ([][]Shape, []Region) {
 		for i, cs := range countStrs {
 			counts[i], _ = strconv.Atoi(cs)
 		}
-
 		regions = append(regions, Region{width: width, height: height, counts: counts})
 	}
 
-	return allShapes, regions
+	return allMasks, regions, cellCount
 }
 
-// Build a flat list of shape indices to place (e.g., if counts = [2, 0, 1], result = [0, 0, 2])
-func buildShapeList(counts []int) []int {
-	var list []int
-	for shapeIdx, count := range counts {
-		for i := 0; i < count; i++ {
-			list = append(list, shapeIdx)
+// Grid for solving using row bitmasks
+type Grid struct {
+	width, height int
+	rows          []uint64
+}
+
+func newGrid(w, h int) *Grid {
+	return &Grid{
+		width:  w,
+		height: h,
+		rows:   make([]uint64, h),
+	}
+}
+
+func (g *Grid) canPlace(m *ShapeMask, startR, startC int) bool {
+	if startR < 0 || startR+m.maxRow >= g.height || startC < 0 || startC+m.maxCol >= g.width {
+		return false
+	}
+	for i, mask := range m.rowMasks {
+		shiftedMask := mask << startC
+		if g.rows[startR+i]&shiftedMask != 0 {
+			return false
 		}
 	}
-	return list
+	return true
 }
 
-// Solve tries to place all shapes in the list using backtracking
-// skipsLeft is the number of cells we can still leave empty
-func solve(g *Grid, allShapes [][]Shape, shapeList []int, idx int, skipsLeft int) bool {
-	if idx == len(shapeList) {
-		return true // All shapes placed
+func (g *Grid) place(m *ShapeMask, startR, startC int) {
+	for i, mask := range m.rowMasks {
+		g.rows[startR+i] |= mask << startC
+	}
+}
+
+func (g *Grid) remove(m *ShapeMask, startR, startC int) {
+	for i, mask := range m.rowMasks {
+		g.rows[startR+i] &^= mask << startC
+	}
+}
+
+func (g *Grid) firstEmpty() (int, int) {
+	for r := 0; r < g.height; r++ {
+		invRow := ^g.rows[r]
+		if invRow != 0 {
+			c := bits.TrailingZeros64(invRow)
+			if c < g.width {
+				return r, c
+			}
+		}
+	}
+	return -1, -1
+}
+
+func (g *Grid) setCell(r, c int) {
+	g.rows[r] |= 1 << c
+}
+
+func (g *Grid) clearCell(r, c int) {
+	g.rows[r] &^= 1 << c
+}
+
+// ShapeEntry for the shape list
+type ShapeEntry struct {
+	shapeIdx  int
+	cellCount int
+}
+
+// Solver for backtracking
+type Solver struct {
+	grid     *Grid
+	allMasks [][]ShapeMask
+	shapes   []ShapeEntry
+}
+
+func (s *Solver) solve(idx int, skipsLeft int) bool {
+	if idx == len(s.shapes) {
+		return true
 	}
 
-	// Find first empty cell - we try to place a shape covering this cell
-	r, c, found := g.firstEmpty()
-	if !found {
-		// Grid is full but we still have shapes to place
+	r, c := s.grid.firstEmpty()
+	if r < 0 {
 		return false
 	}
 
-	// Try each remaining shape in the list (swap-based approach)
-	for i := idx; i < len(shapeList); i++ {
-		// Skip if same shape type as already tried at this position
-		if i > idx && shapeList[i] == shapeList[idx] {
+	for i := idx; i < len(s.shapes); i++ {
+		if i > idx && s.shapes[i].shapeIdx == s.shapes[idx].shapeIdx {
 			continue
 		}
 
-		shapeList[idx], shapeList[i] = shapeList[i], shapeList[idx]
-		shapeIdx := shapeList[idx]
+		s.shapes[idx], s.shapes[i] = s.shapes[i], s.shapes[idx]
+		shapeIdx := s.shapes[idx].shapeIdx
 
-		// Try each orientation of this shape
-		for _, orientation := range allShapes[shapeIdx] {
-			// Try placing so that the shape covers cell (r, c)
-			for _, offset := range orientation {
-				startR := r - offset.r
-				startC := c - offset.c
-				if g.canPlace(orientation, startR, startC) {
-					g.place(orientation, startR, startC)
-					if solve(g, allShapes, shapeList, idx+1, skipsLeft) {
-						return true
+		for mi := range s.allMasks[shapeIdx] {
+			m := &s.allMasks[shapeIdx][mi]
+			for dr := 0; dr <= m.maxRow; dr++ {
+				mask := m.rowMasks[dr]
+				for dc := 0; dc <= m.maxCol; dc++ {
+					if mask&(1<<dc) != 0 {
+						startR := r - dr
+						startC := c - dc
+						if s.grid.canPlace(m, startR, startC) {
+							s.grid.place(m, startR, startC)
+							if s.solve(idx+1, skipsLeft) {
+								return true
+							}
+							s.grid.remove(m, startR, startC)
+						}
 					}
-					g.remove(orientation, startR, startC)
 				}
 			}
 		}
 
-		shapeList[idx], shapeList[i] = shapeList[i], shapeList[idx]
+		s.shapes[idx], s.shapes[i] = s.shapes[i], s.shapes[idx]
 	}
 
-	// If no shape could cover this cell and we have skips left, try skipping
 	if skipsLeft > 0 {
-		g.cells[r][c] = true // temporarily block this cell
-		result := solve(g, allShapes, shapeList, idx, skipsLeft-1)
-		g.cells[r][c] = false // unblock
+		s.grid.setCell(r, c)
+		result := s.solve(idx, skipsLeft-1)
+		s.grid.clearCell(r, c)
 		return result
 	}
 
 	return false
 }
 
-func canFit(allShapes [][]Shape, region Region) bool {
-	g := newGrid(region.width, region.height)
-	shapeList := buildShapeList(region.counts)
+// Greedy placement - try row by row, packing tightly
+func greedyPlace(g *Grid, allMasks [][]ShapeMask, shapes []ShapeEntry) bool {
+	for _, se := range shapes {
+		placed := false
+		// Try each orientation
+		for mi := range allMasks[se.shapeIdx] {
+			if placed {
+				break
+			}
+			m := &allMasks[se.shapeIdx][mi]
+			maxStartR := g.height - m.maxRow - 1
+			maxStartC := g.width - m.maxCol - 1
+			// Try positions, prioritizing top-left
+			for startR := 0; startR <= maxStartR && !placed; startR++ {
+				for startC := 0; startC <= maxStartC && !placed; startC++ {
+					if g.canPlace(m, startR, startC) {
+						g.place(m, startR, startC)
+						placed = true
+					}
+				}
+			}
+		}
+		if !placed {
+			return false
+		}
+	}
+	return true
+}
 
-	if len(shapeList) == 0 {
+func canFit(allMasks [][]ShapeMask, region Region, cellCount int) bool {
+	// Build shape list
+	var shapes []ShapeEntry
+	totalCells := 0
+	for shapeIdx, count := range region.counts {
+		if count > 0 && len(allMasks[shapeIdx]) > 0 {
+			for range count {
+				shapes = append(shapes, ShapeEntry{shapeIdx: shapeIdx, cellCount: cellCount})
+			}
+			totalCells += count * cellCount
+		}
+	}
+
+	if len(shapes) == 0 {
 		return true
 	}
 
-	// Calculate total cells needed vs available
-	totalCells := 0
-	for i, count := range region.counts {
-		if count > 0 && len(allShapes[i]) > 0 {
-			totalCells += count * len(allShapes[i][0])
-		}
-	}
 	gridArea := region.width * region.height
 	if totalCells > gridArea {
 		return false
 	}
 
+	// Try greedy first
+	g := newGrid(region.width, region.height)
+	if greedyPlace(g, allMasks, shapes) {
+		return true
+	}
+
+	// Fall back to backtracking
+	solver := &Solver{
+		grid:     newGrid(region.width, region.height),
+		allMasks: allMasks,
+		shapes:   shapes,
+	}
+
 	skipsAllowed := gridArea - totalCells
-	return solve(g, allShapes, shapeList, 0, skipsAllowed)
+	return solver.solve(0, skipsAllowed)
 }
 
 func part1(lines []string) int {
-	allShapes, regions := parseInput(lines)
+	allMasks, regions, cellCount := parseInput(lines)
 
-	count := 0
+	var wg sync.WaitGroup
+	var count atomic.Int64
+
 	for _, region := range regions {
-		if canFit(allShapes, region) {
-			count++
-		}
+		wg.Add(1)
+		go func(r Region) {
+			defer wg.Done()
+			if canFit(allMasks, r, cellCount) {
+				count.Add(1)
+			}
+		}(region)
 	}
-	return count
+
+	wg.Wait()
+	return int(count.Load())
 }
 
 func part2(lines []string) int {
-	// TODO: implement
 	return 0
 }
 
