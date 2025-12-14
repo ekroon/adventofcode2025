@@ -104,22 +104,20 @@ func buildEdgeHeap(lines []string) ([]Point, *EdgeHeap) {
 	return points, &edges
 }
 
-// Union-Find with path compression and union by rank
+// Union-Find with path compression and union by size
 type UnionFind struct {
 	parent []int
-	rank   []int
 	size   []int
 }
 
 func newUnionFind(n int) *UnionFind {
 	parent := make([]int, n)
-	rank := make([]int, n)
 	size := make([]int, n)
 	for i := range parent {
 		parent[i] = i
 		size[i] = 1
 	}
-	return &UnionFind{parent, rank, size}
+	return &UnionFind{parent, size}
 }
 
 func (uf *UnionFind) find(x int) int {
@@ -134,14 +132,12 @@ func (uf *UnionFind) union(x, y int) bool {
 	if px == py {
 		return false // already in same circuit
 	}
-	if uf.rank[px] < uf.rank[py] {
+	// Union by size: attach smaller tree under larger
+	if uf.size[px] < uf.size[py] {
 		px, py = py, px
 	}
 	uf.parent[py] = px
 	uf.size[px] += uf.size[py]
-	if uf.rank[px] == uf.rank[py] {
-		uf.rank[px]++
-	}
 	return true
 }
 
